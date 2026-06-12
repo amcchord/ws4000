@@ -44,6 +44,9 @@ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
 ### Build
 
 ```bash
+git clone https://github.com/amcchord/ws4000.git
+cd ws4000
+
 # Download assets from upstream ws4kp (idempotent)
 ./tools/vendor-assets.sh
 
