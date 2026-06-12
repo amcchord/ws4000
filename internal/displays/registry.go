@@ -1,9 +1,9 @@
 package displays
 
 import (
-	"github.com/austinmcchord/ws4000/internal/config"
-	"github.com/austinmcchord/ws4000/internal/data/weather"
-	"github.com/austinmcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/config"
+	"github.com/amcchord/ws4000/internal/data/weather"
+	"github.com/amcchord/ws4000/internal/engine"
 )
 
 func RegisterAll(nav *engine.Navigator, svc *weather.Service, cfg config.Config) {

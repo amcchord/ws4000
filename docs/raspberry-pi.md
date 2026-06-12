@@ -12,7 +12,7 @@ sudo apt install -y libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev pkg-config git
 ## Build
 
 ```bash
-git clone https://github.com/austinmcchord/ws4000.git
+git clone https://github.com/amcchord/ws4000.git
 cd ws4000
 ./tools/vendor-assets.sh
 go build -o ws4000 ./cmd/ws4000

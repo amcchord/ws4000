@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/austinmcchord/ws4000/internal/assets"
+	"github.com/amcchord/ws4000/internal/assets"
 	"github.com/veandco/go-sdl2/mix"
 )
 

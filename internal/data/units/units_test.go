@@ -3,7 +3,7 @@ package units_test
 import (
 	"testing"
 
-	"github.com/austinmcchord/ws4000/internal/data/units"
+	"github.com/amcchord/ws4000/internal/data/units"
 )
 
 func TestTempConversion(t *testing.T) {

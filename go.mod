@@ -1,4 +1,4 @@
-module github.com/austinmcchord/ws4000
+module github.com/amcchord/ws4000
 
 go 1.26.3
 

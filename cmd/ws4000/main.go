@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/austinmcchord/ws4000/internal/app"
-	"github.com/austinmcchord/ws4000/internal/config"
+	"github.com/amcchord/ws4000/internal/app"
+	"github.com/amcchord/ws4000/internal/config"
 )
 
 func main() {

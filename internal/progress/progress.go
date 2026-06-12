@@ -3,8 +3,8 @@ package progress
 import (
 	"fmt"
 
-	"github.com/austinmcchord/ws4000/internal/assets"
-	"github.com/austinmcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/assets"
+	"github.com/amcchord/ws4000/internal/engine"
 )
 
 type Display struct {

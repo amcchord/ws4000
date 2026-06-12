@@ -3,9 +3,9 @@ package weather
 import (
 	"strings"
 
-	"github.com/austinmcchord/ws4000/internal/data/geo"
-	"github.com/austinmcchord/ws4000/internal/data/nws"
-	"github.com/austinmcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/data/geo"
+	"github.com/amcchord/ws4000/internal/data/nws"
+	"github.com/amcchord/ws4000/internal/engine"
 )
 
 type Service struct {

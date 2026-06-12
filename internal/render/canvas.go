@@ -10,7 +10,7 @@ import (
 	"image/png"
 	"unsafe"
 
-	"github.com/austinmcchord/ws4000/internal/assets"
+	"github.com/amcchord/ws4000/internal/assets"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 	xdraw "golang.org/x/image/draw"

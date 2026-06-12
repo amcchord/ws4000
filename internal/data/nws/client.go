@@ -14,7 +14,7 @@ import (
 
 const (
 	BaseURL    = "https://api.weather.gov"
-	UserAgent  = "ws4000 (github.com/austinmcchord/ws4000)"
+	UserAgent  = "ws4000 (github.com/amcchord/ws4000)"
 )
 
 type Client struct {

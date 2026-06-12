@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/austinmcchord/ws4000/internal/config"
+	"github.com/amcchord/ws4000/internal/config"
 )
 
 func TestDefaultConfig(t *testing.T) {

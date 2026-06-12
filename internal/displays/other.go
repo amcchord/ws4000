@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/austinmcchord/ws4000/internal/assets"
-	"github.com/austinmcchord/ws4000/internal/config"
-	"github.com/austinmcchord/ws4000/internal/data/nws"
-	"github.com/austinmcchord/ws4000/internal/data/suncalc"
-	"github.com/austinmcchord/ws4000/internal/data/units"
-	"github.com/austinmcchord/ws4000/internal/data/weather"
-	"github.com/austinmcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/assets"
+	"github.com/amcchord/ws4000/internal/config"
+	"github.com/amcchord/ws4000/internal/data/nws"
+	"github.com/amcchord/ws4000/internal/data/suncalc"
+	"github.com/amcchord/ws4000/internal/data/units"
+	"github.com/amcchord/ws4000/internal/data/weather"
+	"github.com/amcchord/ws4000/internal/engine"
 )
 
 type LatestObservationsDisplay struct {

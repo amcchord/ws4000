@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/austinmcchord/ws4000/internal/config"
-	"github.com/austinmcchord/ws4000/internal/data/weather"
-	"github.com/austinmcchord/ws4000/internal/displays"
-	"github.com/austinmcchord/ws4000/internal/engine"
-	"github.com/austinmcchord/ws4000/internal/music"
-	"github.com/austinmcchord/ws4000/internal/progress"
-	"github.com/austinmcchord/ws4000/internal/render"
+	"github.com/amcchord/ws4000/internal/config"
+	"github.com/amcchord/ws4000/internal/data/weather"
+	"github.com/amcchord/ws4000/internal/displays"
+	"github.com/amcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/music"
+	"github.com/amcchord/ws4000/internal/progress"
+	"github.com/amcchord/ws4000/internal/render"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
