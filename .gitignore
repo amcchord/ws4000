@@ -1,0 +1,32 @@
+# Binaries
+/ws4000
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+/vendor/
+
+# Assets vendored from upstream (regenerate with tools/vendor-assets.sh)
+/assets/upstream/
+
+# Cache and runtime
+/.cache/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+/tools/.venv/
+/testdata/fixtures/
+/testdata/screenshots/
+/tools/compare/output/
+
+# Config overrides (keep example)
+config.toml

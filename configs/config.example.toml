@@ -1,0 +1,29 @@
+# WeatherStar 4000+ native configuration
+
+location = "Orlando International Airport, Orlando, FL, USA"
+# latitude = 28.431
+# longitude = -81.3076
+
+units = "us"
+fullscreen = false
+scale = 2
+speed = 1.0
+scanlines = false
+volume = 0.0
+# music_dir = "/path/to/music"
+# custom_scroll = "Welcome to WeatherStar|Thanks for watching"
+refresh_ms = 600000
+
+[displays]
+hazards = true
+current-weather = true
+latest-observations = true
+hourly = false
+hourly-graph = true
+travel = false
+regional-forecast = true
+local-forecast = true
+extended-forecast = true
+almanac = false
+spc-outlook = true
+radar = true
