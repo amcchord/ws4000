@@ -1,3 +1,6 @@
+// Package units ports upstream utils/units.mjs. The weather.gov API returns
+// SI values (celsius, km/h, meters, pascals); converters produce the same
+// strings as upstream for us or metric display.
 package units
 
 import (
@@ -6,99 +9,128 @@ import (
 )
 
 type Converter struct {
-	Units string
+	Units string // "us" or "metric"
 }
 
 func New(units string) Converter {
 	if units == "si" {
 		units = "metric"
 	}
+	if units != "metric" {
+		units = "us"
+	}
 	return Converter{Units: units}
 }
 
+func (c Converter) us() bool { return c.Units == "us" }
+
+// TempC converts celsius input. us: round((c*9/5)+32); metric: round(c).
 func (c Converter) TempC(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	if c.Units == "metric" {
-		return fmt.Sprintf("%d", int(math.Round(*v)))
+	if c.us() {
+		return fmt.Sprintf("%d", int(math.Round(*v*9/5+32)))
 	}
-	return fmt.Sprintf("%d", int(math.Round(*v*9.0/5.0+32.0)))
+	return fmt.Sprintf("%d", int(math.Round(*v)))
 }
 
-func (c Converter) TempSymbol() string {
-	return string(rune(176))
+func (c Converter) TempUnit() string {
+	if c.us() {
+		return "F"
+	}
+	return "C"
 }
 
-func (c Converter) WindMS(v *float64) string {
+// WindKMH converts km/h input (upstream kphToMph). Returns "Calm" for 0.
+func (c Converter) WindKMH(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	if *v == 0 {
+	var speed int
+	if c.us() {
+		speed = int(math.Round(*v / 1.60934))
+	} else {
+		speed = int(math.Round(*v))
+	}
+	if speed == 0 {
 		return "Calm"
 	}
-	if c.Units == "metric" {
-		return fmt.Sprintf("%d", int(math.Round(*v*3.6)))
-	}
-	return fmt.Sprintf("%d", int(math.Round(*v*2.236936)))
+	return fmt.Sprintf("%d", speed)
 }
 
 func (c Converter) WindUnit() string {
-	if c.Units == "metric" {
-		return "KPH"
+	if c.us() {
+		return "MPH"
 	}
-	return "MPH"
+	return "kph"
 }
 
+// PressurePa converts pascals. us: inHg with 2 decimals (truncated); metric: mbar.
 func (c Converter) PressurePa(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	if c.Units == "metric" {
-		return fmt.Sprintf("%.0f", *v/100.0)
+	if c.us() {
+		inhg := math.Trunc(*v*0.0002953*100) / 100
+		return fmt.Sprintf("%.2f", inhg)
 	}
-	return fmt.Sprintf("%.2f", *v*0.0002952998)
+	return fmt.Sprintf("%d", int(math.Round(*v/100)))
 }
 
 func (c Converter) PressureUnit() string {
-	if c.Units == "metric" {
-		return "MB"
+	if c.us() {
+		return " in.hg"
 	}
-	return "IN"
+	return " mbar"
 }
 
+// VisibilityM converts meters: us → miles (rounded); metric → km.
+// Unit strings include the upstream leading space.
 func (c Converter) VisibilityM(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	if c.Units == "metric" {
-		return fmt.Sprintf("%.1f", *v/1000.0)
+	if c.us() {
+		miles := math.Round(math.Round(*v/1.60934) / 1000)
+		return fmt.Sprintf("%d", int(miles))
 	}
-	return fmt.Sprintf("%.1f", *v*0.000621371)
+	return fmt.Sprintf("%d", int(math.Round(*v/1000)))
 }
 
 func (c Converter) VisibilityUnit() string {
-	if c.Units == "metric" {
-		return "KM"
+	if c.us() {
+		return " mi."
 	}
-	return "MI"
+	return " km."
 }
 
+// CeilingM converts meters: us → feet rounded to nearest 100; metric → m.
+// Returns "Unlimited" for 0/nil like upstream.
 func (c Converter) CeilingM(v *float64) string {
 	if v == nil || *v == 0 {
 		return "Unlimited"
 	}
-	if c.Units == "metric" {
-		return fmt.Sprintf("%d", int(math.Round(*v/100.0)))
+	if c.us() {
+		feet := math.Round(math.Round(*v/0.3048)/100) * 100
+		return fmt.Sprintf("%d", int(feet))
 	}
-	return fmt.Sprintf("%d", int(math.Round(*v*3.28084)))
+	return fmt.Sprintf("%d", int(math.Round(*v)))
 }
 
 func (c Converter) CeilingUnit() string {
-	if c.Units == "metric" {
-		return "M"
+	if c.us() {
+		return "ft."
 	}
-	return "FT"
+	return "m."
+}
+
+// CToF converts a celsius value to display units as float (for charts).
+func (c Converter) CToF(v float64) float64 {
+	if c.us() {
+		return v*9/5 + 32
+	}
+	return v
 }
 
 func DirectionToNSEW(deg *float64) string {
@@ -107,5 +139,8 @@ func DirectionToNSEW(deg *float64) string {
 	}
 	dirs := []string{"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"}
 	idx := int(math.Round(*deg/22.5)) % 16
+	if idx < 0 {
+		idx += 16
+	}
 	return dirs[idx]
 }

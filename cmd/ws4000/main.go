@@ -17,8 +17,7 @@ func main() {
 
 	cfgPath := flags.ConfigPath
 	if cfgPath == "" {
-		path, err := config.DefaultPath()
-		if err == nil {
+		if path, err := config.DefaultPath(); err == nil {
 			cfgPath = path
 		}
 	}
@@ -34,14 +33,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	application, err := app.New(cfg)
+	headless := flags.Screenshot != ""
+	application, err := app.New(cfg, headless)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "startup error: %v\n", err)
 		os.Exit(1)
 	}
 	defer application.Close()
 
-	if err := application.Run(flags.Screenshot); err != nil {
+	if err := application.Run(flags.Screenshot, flags.Display); err != nil {
 		fmt.Fprintf(os.Stderr, "runtime error: %v\n", err)
 		os.Exit(1)
 	}

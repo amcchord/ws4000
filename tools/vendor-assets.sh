@@ -87,6 +87,9 @@ download_tree "server/images/icons" "${ASSETS_DIR}/icons"
 echo "Maps..."
 download_tree "server/images/maps" "${ASSETS_DIR}/maps"
 
+echo "Logos..."
+download_tree "server/images/logos" "${ASSETS_DIR}/logos"
+
 echo "Fonts..."
 download_tree "server/fonts" "${ASSETS_DIR}/fonts"
 

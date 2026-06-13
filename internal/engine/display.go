@@ -3,6 +3,8 @@ package engine
 import (
 	"sync"
 	"time"
+
+	"github.com/amcchord/ws4000/internal/render"
 )
 
 type Display interface {
@@ -12,79 +14,64 @@ type Display interface {
 	Enabled() bool
 	SetEnabled(bool)
 	Status() LoadStatus
-	SetStatus(LoadStatus)
 	Timing() *Timing
 	Fetch(params *WeatherParams) error
-	Draw(canvas Canvas, screenIndex int) error
-	DrawClock(canvas Canvas) error
-	ShowClock() bool
-	ShowTicker() bool
-	BackgroundID() string
-	OnShow(screenIndex int)
+	Draw(canvas *render.Canvas, screenIndex int) error
+	// ShowClock reports whether the standard date/time should be drawn (drawn by displays themselves).
+	OkToDrawTicker() bool
+	OnShow()
 	OnHide()
-	TickBaseCount(baseCount int) (next bool, response NavResponse)
-	ResetNav()
 	StartNav(speed float64)
 	StopNav()
 	NavNext(cmd NavCommand)
 	NavPrev(cmd NavCommand)
 	ScreenIndex() int
-	SetScreenIndex(int)
-	BaseCount() int
-	SetBaseCount(int)
 	SetNavCallback(func(id string, resp NavResponse))
 }
 
-type Canvas interface {
-	Clear()
-	DrawBackground(path string) error
-	DrawText(font, text string, x, y int, color interface{}, shadow bool)
-	DrawTextRight(font, text string, x, y int, color interface{}, shadow bool)
-	DrawTextCentered(font, text string, x, y, w int, color interface{}, shadow bool)
-	DrawImage(path string, x, y, w, h int) error
-	DrawGIF(path string, x, y, w, h int, frame int) error
-	DrawRect(x, y, w, h int, color interface{})
-	DrawScanlines(enabled bool)
-	Size() (int, int)
-	Texture() interface{}
+type WeatherParams struct {
+	Latitude        float64
+	Longitude       float64
+	City            string
+	State           string
+	ZoneID          string
+	RadarID         string
+	StationID       string
+	StationName     string
+	WeatherOffice   string
+	GridX           int
+	GridY           int
+	TimeZone        string
+	ForecastURL     string
+	ForecastGridURL string
+	ObservationURL  string
+	Units           string
+	StationURLs     []string
+	Location        *time.Location
 }
 
-type WeatherParams struct {
-	Latitude          float64
-	Longitude         float64
-	City              string
-	State             string
-	ZoneID            string
-	RadarID           string
-	StationID         string
-	WeatherOffice     string
-	TimeZone          string
-	ForecastURL       string
-	ForecastGridURL   string
-	ObservationURL    string
-	Units             string
-	StationURLs       []string
+func (p *WeatherParams) TZ() *time.Location {
+	if p == nil || p.Location == nil {
+		return time.Local
+	}
+	return p.Location
 }
 
 type BaseDisplay struct {
-	mu              sync.Mutex
-	id              string
-	name            string
-	navID           int
-	enabled         bool
-	defaultEnabled  bool
-	status          LoadStatus
-	timing          Timing
-	screenIndex     int
-	navBaseCount    int
-	speed           float64
-	navTicker       *time.Ticker
-	navStop         chan struct{}
-	showClock       bool
-	showTicker      bool
-	okDrawTicker    bool
-	params          *WeatherParams
-	onNav           func(id string, resp NavResponse)
+	mu             sync.Mutex
+	id             string
+	name           string
+	navID          int
+	enabled        bool
+	status         LoadStatus
+	timing         Timing
+	screenIndex    int
+	navBaseCount   int
+	navTicker      *time.Ticker
+	navStop        chan struct{}
+	okToDrawTicker bool
+	params         *WeatherParams
+	onNav          func(id string, resp NavResponse)
 }
 
 func NewBaseDisplay(navID int, id, name string, defaultEnabled bool) *BaseDisplay {
@@ -92,12 +79,9 @@ func NewBaseDisplay(navID int, id, name string, defaultEnabled bool) *BaseDispla
 		id:             id,
 		name:           name,
 		navID:          navID,
-		defaultEnabled: defaultEnabled,
 		enabled:        defaultEnabled,
 		status:         StatusLoading,
-		showClock:      true,
-		showTicker:     true,
-		okDrawTicker:   true,
+		okToDrawTicker: true,
 		screenIndex:    -1,
 		timing: Timing{
 			TotalScreens: 1,
@@ -116,18 +100,21 @@ func (d *BaseDisplay) ID() string             { return d.id }
 func (d *BaseDisplay) Name() string           { return d.name }
 func (d *BaseDisplay) NavID() int             { return d.navID }
 func (d *BaseDisplay) Enabled() bool          { return d.enabled }
-func (d *BaseDisplay) Status() LoadStatus     { return d.status }
 func (d *BaseDisplay) Timing() *Timing        { return &d.timing }
-func (d *BaseDisplay) ShowClock() bool        { return d.showClock }
-func (d *BaseDisplay) ShowTicker() bool       { return d.showTicker && d.okDrawTicker }
-func (d *BaseDisplay) BackgroundID() string   { return d.id }
+func (d *BaseDisplay) OkToDrawTicker() bool   { return d.okToDrawTicker }
 func (d *BaseDisplay) ScreenIndex() int       { return d.screenIndex }
-func (d *BaseDisplay) BaseCount() int         { return d.navBaseCount }
 func (d *BaseDisplay) Params() *WeatherParams { return d.params }
+
+func (d *BaseDisplay) SetOkToDrawTicker(v bool) { d.okToDrawTicker = v }
+
+func (d *BaseDisplay) Status() LoadStatus {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.status
+}
 
 func (d *BaseDisplay) SetEnabled(v bool) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.enabled = v
 	if v {
 		if d.status == StatusDisabled {
@@ -135,6 +122,9 @@ func (d *BaseDisplay) SetEnabled(v bool) {
 		}
 	} else {
 		d.status = StatusDisabled
+	}
+	d.mu.Unlock()
+	if !v {
 		d.StopNav()
 	}
 }
@@ -145,44 +135,29 @@ func (d *BaseDisplay) SetStatus(s LoadStatus) {
 	d.mu.Unlock()
 }
 
-func (d *BaseDisplay) SetScreenIndex(v int) { d.screenIndex = v }
-func (d *BaseDisplay) SetBaseCount(v int)   { d.navBaseCount = v }
-
 func (d *BaseDisplay) SetNavCallback(fn func(id string, resp NavResponse)) {
 	d.onNav = fn
 }
 
-func (d *BaseDisplay) SetShowClock(v bool)  { d.showClock = v }
-func (d *BaseDisplay) SetShowTicker(v bool) { d.showTicker = v; d.okDrawTicker = v }
-
-func (d *BaseDisplay) BeginFetch(params *WeatherParams, refresh bool) bool {
+// BeginFetch stores params and resets status; returns false if display disabled.
+func (d *BaseDisplay) BeginFetch(params *WeatherParams) bool {
 	d.params = params
 	if !d.enabled {
 		d.SetStatus(StatusDisabled)
 		return false
 	}
-	if !refresh {
-		d.SetStatus(StatusLoading)
-	}
+	d.SetStatus(StatusLoading)
 	d.timing.CalcNavTiming()
 	return true
 }
 
-func (d *BaseDisplay) DrawClock(canvas Canvas) error {
-	return nil
-}
-
-func (d *BaseDisplay) OnShow(screenIndex int) {
+func (d *BaseDisplay) OnShow() {
 	if d.screenIndex < 0 {
 		d.screenIndex = 0
 	}
 }
 
 func (d *BaseDisplay) OnHide() {
-	d.ResetNav()
-}
-
-func (d *BaseDisplay) ResetNav() {
 	d.StopNav()
 	d.navBaseCount = 0
 	d.screenIndex = -1
@@ -193,16 +168,19 @@ func (d *BaseDisplay) StartNav(speed float64) {
 	if speed <= 0 {
 		speed = 1.0
 	}
-	d.speed = speed
-	interval := time.Duration(float64(d.timing.BaseDelayMS) / speed) * time.Millisecond
-	d.navStop = make(chan struct{})
-	d.navTicker = time.NewTicker(interval)
+	interval := time.Duration(float64(d.timing.BaseDelayMS)*speed) * time.Millisecond
+	stop := make(chan struct{})
+	ticker := time.NewTicker(interval)
+	d.mu.Lock()
+	d.navStop = stop
+	d.navTicker = ticker
+	d.mu.Unlock()
 	go func() {
 		for {
 			select {
-			case <-d.navTicker.C:
+			case <-ticker.C:
 				d.navBaseTime()
-			case <-d.navStop:
+			case <-stop:
 				return
 			}
 		}
@@ -210,13 +188,17 @@ func (d *BaseDisplay) StartNav(speed float64) {
 }
 
 func (d *BaseDisplay) StopNav() {
-	if d.navTicker != nil {
-		d.navTicker.Stop()
-		d.navTicker = nil
+	d.mu.Lock()
+	ticker := d.navTicker
+	stop := d.navStop
+	d.navTicker = nil
+	d.navStop = nil
+	d.mu.Unlock()
+	if ticker != nil {
+		ticker.Stop()
 	}
-	if d.navStop != nil {
-		close(d.navStop)
-		d.navStop = nil
+	if stop != nil {
+		close(stop)
 	}
 }
 
@@ -239,11 +221,7 @@ func (d *BaseDisplay) updateScreenFromBaseCount(force bool) {
 	if !force && next == d.screenIndex && d.screenIndex >= 0 {
 		return
 	}
-	if d.screenIndex < 0 {
-		d.screenIndex = 0
-	} else {
-		d.screenIndex = next
-	}
+	d.screenIndex = next
 }
 
 func (d *BaseDisplay) NavNext(cmd NavCommand) {
@@ -269,22 +247,4 @@ func (d *BaseDisplay) NavPrev(cmd NavCommand) {
 		d.navBaseCount = prev
 	}
 	d.updateScreenFromBaseCount(true)
-}
-
-func (d *BaseDisplay) TickBaseCount(baseCount int) (bool, NavResponse) {
-	return false, NavRespNext
-}
-
-func (d *BaseDisplay) DrawStandardHeader(canvas Canvas, titleTop, titleBottom string) {
-	canvas.DrawText("large", titleTop, 20, 18, ColorTitle(), true)
-	canvas.DrawText("large", titleBottom, 20, 38, ColorTitle(), true)
-}
-
-func ColorTitle() interface{} {
-	return struct{}{}
-}
-
-func (d *BaseDisplay) DrawStandardDateTime(canvas Canvas, date, timeStr string) {
-	canvas.DrawTextRight("small", timeStr, 620, 8, nil, true)
-	canvas.DrawTextRight("small", date, 620, 22, nil, true)
 }

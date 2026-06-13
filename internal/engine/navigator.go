@@ -18,7 +18,7 @@ func NewNavigator(speed float64) *Navigator {
 	if speed <= 0 {
 		speed = 1.0
 	}
-	return &Navigator{speed: speed}
+	return &Navigator{speed: speed, current: -1}
 }
 
 func (n *Navigator) Register(d Display) {
@@ -164,13 +164,26 @@ func (n *Navigator) showIndex(idx int, cmd NavCommand) {
 	}
 	n.current = idx
 	d := n.displays[idx]
-	d.OnShow(0)
+	d.OnShow()
 	if cmd == NavFirstFrame {
 		d.NavNext(NavFirstFrame)
 	} else {
 		d.NavPrev(NavLastFrame)
 	}
 	d.StartNav(n.speed)
+}
+
+// ShowDisplayByID jumps directly to a display by id (used by screenshot mode).
+func (n *Navigator) ShowDisplayByID(id string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for i, d := range n.displays {
+		if d.ID() == id {
+			n.showIndex(i, NavFirstFrame)
+			return true
+		}
+	}
+	return false
 }
 
 func (n *Navigator) NavToFirst() {

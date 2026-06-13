@@ -1,53 +1,18 @@
 package displays
 
 import (
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/amcchord/ws4000/internal/assets"
 	"github.com/amcchord/ws4000/internal/config"
 	"github.com/amcchord/ws4000/internal/data/icons"
 	"github.com/amcchord/ws4000/internal/data/nws"
 	"github.com/amcchord/ws4000/internal/data/units"
 	"github.com/amcchord/ws4000/internal/data/weather"
 	"github.com/amcchord/ws4000/internal/engine"
+	"github.com/amcchord/ws4000/internal/render"
 )
-
-func drawBackground(canvas engine.Canvas, displayID string) {
-	_ = canvas.DrawBackground(assets.BackgroundPath(displayID))
-}
-
-func drawHeader(canvas engine.Canvas, top, bottom string) {
-	canvas.DrawText("large", top, 20, 18, titleColor(), true)
-	canvas.DrawText("large", bottom, 20, 42, titleColor(), true)
-}
-
-func titleColor() interface{} {
-	return struct{ title bool }{true}
-}
-
-func drawDateTime(canvas engine.Canvas, loc *time.Location) {
-	now := time.Now()
-	if loc != nil {
-		now = now.In(loc)
-	}
-	date := strings.ToUpper(now.Format("Mon Jan 02"))
-	timeStr := strings.ToUpper(now.Format("03:04:05 PM"))
-	canvas.DrawTextRight("small", timeStr, 620, 8, nil, true)
-	canvas.DrawTextRight("small", date, 620, 22, nil, true)
-}
-
-func loadLocation(tz string) *time.Location {
-	if tz == "" {
-		return time.Local
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return time.Local
-	}
-	return loc
-}
 
 type CurrentWeatherDisplay struct {
 	*engine.BaseDisplay
@@ -57,16 +22,15 @@ type CurrentWeatherDisplay struct {
 }
 
 type currentWeatherData struct {
-	Temperature    string
+	Temperature    string // with degree sign
+	TempUnit       string // F or C
 	Condition      string
-	Wind           string
-	WindGust       string
+	WindDirSpeed   string // "SE  10" or "Calm"
+	WindGust       string // "Gusts to 20" or ""
 	Humidity       string
 	Dewpoint       string
 	Ceiling        string
-	CeilingUnit    string
 	Visibility     string
-	VisibilityUnit string
 	Pressure       string
 	PressureDir    string
 	HeatIndexLabel string
@@ -74,7 +38,9 @@ type currentWeatherData struct {
 	Location       string
 	Icon           string
 	Stale          bool
-	TickerText     string
+
+	// raw values for the ticker
+	tickerSegments []string
 }
 
 func NewCurrentWeather(svc *weather.Service, cfg config.Config) *CurrentWeatherDisplay {
@@ -86,10 +52,11 @@ func NewCurrentWeather(svc *weather.Service, cfg config.Config) *CurrentWeatherD
 }
 
 func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
-	if !d.BeginFetch(params, false) {
+	if !d.BeginFetch(params) {
 		return nil
 	}
 	conv := units.New(params.Units)
+
 	var obs *nws.ObservationResponse
 	for _, url := range params.StationURLs {
 		candidate, err := d.svc.Client.GetObservations(url, 5)
@@ -107,6 +74,7 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 		d.SetStatus(engine.StatusFailed)
 		return nil
 	}
+
 	props := obs.Features[0].Properties
 	pressureDir := ""
 	if len(obs.Features) > 1 {
@@ -122,65 +90,104 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 			}
 		}
 	}
+
 	condition := props.TextDescription
 	if len(condition) > 15 {
 		condition = weather.ShortCondition(condition)
 	}
-	wind := conv.WindMS(props.WindSpeed.Value)
-	if wind != "Calm" {
-		wind = units.DirectionToNSEW(props.WindDirection.Value) + wind
+
+	windSpeed := conv.WindKMH(props.WindSpeed.Value)
+	windDirSpeed := "Calm"
+	windDir := units.DirectionToNSEW(props.WindDirection.Value)
+	if windSpeed != "Calm" && windSpeed != "-" {
+		// upstream pads: direction padEnd(3) + speed padStart(3)
+		windDirSpeed = fmt.Sprintf("%-3s%3s", windDir, windSpeed)
 	}
+
+	gust := ""
+	gustVal := conv.WindKMH(props.WindGust.Value)
+	if gustVal != "-" && gustVal != "Calm" {
+		gust = "Gusts to " + gustVal
+	}
+
 	location := weather.CleanLocation(params.City)
 	if len(location) > 20 {
 		location = location[:20]
 	}
-	heatLabel := ""
-	heatValue := ""
+
+	tempUnit := conv.TempUnit()
+
+	heatLabel, heatValue := "", ""
+	temp := conv.TempC(props.Temperature.Value)
 	if props.HeatIndex.Value != nil {
-		t := conv.TempC(props.Temperature.Value)
 		h := conv.TempC(props.HeatIndex.Value)
-		if t != h {
-			heatLabel = "Heat Index:"
-			heatValue = h + conv.TempSymbol()
+		if h != temp {
+			heatLabel, heatValue = "Heat Index:", h+degree()
 		}
-	}
-	if heatLabel == "" && props.WindChill.Value != nil {
-		t := conv.TempC(props.Temperature.Value)
+	} else if props.WindChill.Value != nil {
 		wc := conv.TempC(props.WindChill.Value)
-		if wc != "" && wc < t {
-			heatLabel = "Wind Chill:"
-			heatValue = wc + conv.TempSymbol()
+		if wc != "" && wc != temp {
+			heatLabel, heatValue = "Wind Chill:", wc+degree()
 		}
 	}
-	gust := conv.WindMS(props.WindGust.Value)
-	if gust == "Calm" || gust == "-" {
-		gust = "-"
+
+	ceiling := conv.CeilingM(ceilingValue(props))
+	if ceiling != "Unlimited" {
+		ceiling += conv.CeilingUnit()
 	}
+
 	d.data = &currentWeatherData{
-		Temperature:    conv.TempC(props.Temperature.Value) + conv.TempSymbol(),
-		Condition:      strings.ToUpper(condition),
-		Wind:           wind,
+		Temperature:    temp + degree(),
+		TempUnit:       tempUnit,
+		Condition:      condition,
+		WindDirSpeed:   windDirSpeed,
 		WindGust:       gust,
 		Humidity:       formatPercent(props.RelativeHumidity.Value),
-		Dewpoint:       conv.TempC(props.Dewpoint.Value) + conv.TempSymbol(),
-		Ceiling:        conv.CeilingM(ceilingValue(props)),
-		CeilingUnit:    conv.CeilingUnit(),
-		Visibility:     conv.VisibilityM(props.Visibility.Value),
-		VisibilityUnit: conv.VisibilityUnit(),
+		Dewpoint:       conv.TempC(props.Dewpoint.Value) + degree(),
+		Ceiling:        ceiling,
+		Visibility:     conv.VisibilityM(props.Visibility.Value) + conv.VisibilityUnit(),
 		Pressure:       conv.PressurePa(props.BarometricPressure.Value),
 		PressureDir:    pressureDir,
 		HeatIndexLabel: heatLabel,
 		HeatIndex:      heatValue,
-		Location:       strings.ToUpper(location),
+		Location:       location,
 		Icon:           icons.LargeIcon(props.Icon),
 	}
-	if ts, err := time.Parse(time.RFC3339, props.Timestamp); err == nil {
-		if time.Since(ts) > 80*time.Minute {
-			d.data.Stale = true
-		}
+
+	if ts, err := time.Parse(time.RFC3339, props.Timestamp); err == nil && time.Since(ts) > 80*time.Minute {
+		d.data.Stale = true
 	}
-	d.data.TickerText = strings.ToUpper(props.TextDescription)
+
+	// ticker segments (ported from currentweatherscroll.mjs)
+	segs := []string{
+		fmt.Sprintf("Conditions at %s", location),
+	}
+	tempSeg := fmt.Sprintf("Temp: %s%s%s", temp, degree(), tempUnit)
+	if heatLabel != "" {
+		tempSeg += fmt.Sprintf("    %s %s%s", heatLabel, heatValue, tempUnit)
+	}
+	segs = append(segs, tempSeg)
+	segs = append(segs, fmt.Sprintf("Humidity: %s   Dewpoint: %s%s", d.data.Humidity, d.data.Dewpoint, tempUnit))
+	segs = append(segs, fmt.Sprintf("Barometric Pressure: %s %s", d.data.Pressure, pressureDir))
+	if windDirSpeed != "Calm" {
+		wind := fmt.Sprintf("Wind: %s %s %s", windDir, windSpeed, conv.WindUnit())
+		if gustVal != "-" && gustVal != "Calm" {
+			wind += "  Gusts to " + gustVal
+		}
+		segs = append(segs, wind)
+	} else {
+		segs = append(segs, "Wind: Calm")
+	}
+	tickerCeiling := ceiling
+	if tickerCeiling != "Unlimited" {
+		// the ticker formats ceiling with a space before the unit
+		tickerCeiling = conv.CeilingM(ceilingValue(props)) + " " + conv.CeilingUnit()
+	}
+	segs = append(segs, fmt.Sprintf("Visib: %s  Ceiling: %s", d.data.Visibility, tickerCeiling))
+	d.data.tickerSegments = segs
+
 	d.Timing().TotalScreens = 1
+	d.Timing().CalcNavTiming()
 	d.SetStatus(engine.StatusLoaded)
 	return nil
 }
@@ -197,48 +204,81 @@ func formatPercent(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	return strconv.Itoa(int(*v)) + "%"
+	return fmt.Sprintf("%.0f%%", *v)
 }
 
-func (d *CurrentWeatherDisplay) Draw(canvas engine.Canvas, screenIndex int) error {
-	drawBackground(canvas, d.ID())
+// Draw renders per upstream current-weather.ejs / _current-weather.scss:
+// blue box content area x=64..576 starting y=90; left col 255px wide, right col
+// 255px wide anchored right; rows pitch lh24+12.
+func (d *CurrentWeatherDisplay) Draw(c *render.Canvas, screenIndex int) error {
+	_ = c.DrawBackground("backgrounds/1.png")
 	titleTop := "Current"
 	if d.data != nil && d.data.Stale {
 		titleTop = "Recent"
 	}
-	drawHeader(canvas, titleTop, "Conditions")
-	drawDateTime(canvas, loadLocation(d.Params().TimeZone))
+	drawHeaderDual(c, d.Params(), titleTop, "Conditions", true)
 	if d.data == nil {
 		return nil
 	}
-	_ = canvas.DrawImage(d.data.Icon, 90, 120, 0, 0)
-	canvas.DrawText("extended", d.data.Temperature, 80, 200, nil, true)
-	canvas.DrawText("extended", d.data.Condition, 64, 240, nil, true)
-	canvas.DrawText("regular", d.data.Wind, 170, 280, nil, true)
-	if d.data.WindGust != "-" {
-		canvas.DrawText("large", "Gusts to "+d.data.WindGust, 64, 310, nil, true)
+
+	leftX := blueBoxMargin       // 64
+	leftW := 255                 //
+	rightX := 640 - 64 - 255     // 321
+	rightW := 255                //
+	top := mainTop + 20          // col margin-top 10 + padding-top 10
+
+	styleTemp := render.Style{Family: render.FontStar4000Large, Size: 32, Color: colWhite, Shadow: true}
+	styleCond := render.Style{Family: render.FontStar4000Extended, Size: 32, Color: colWhite, Shadow: true}
+	styleRow := render.Style{Family: render.FontStar4000Large, Size: 20, Color: colWhite, Shadow: true}
+	styleLoc := render.Style{Family: render.FontStar4000Large, Size: 20, Color: colTitle, Shadow: true}
+
+	// left column: temp, condition, icon, wind, gusts
+	y := top
+	c.TextCenterIn(styleTemp, d.data.Temperature, leftX, leftW, y)
+	y += 40
+	c.TextCenterIn(styleCond, d.data.Condition, leftX, leftW, y)
+	y += 42
+	_ = c.ImageCenteredIn(d.data.Icon, leftX, y, leftW, 75)
+	y += 85
+	// wind row: label left, value right (wind-container margin-left 10)
+	c.Text(styleCond, "Wind:", leftX+10, y)
+	c.TextRight(styleCond, strings.TrimSpace(d.data.WindDirSpeed), leftX+leftW-10, y)
+	y += 42
+	if d.data.WindGust != "" {
+		c.TextRight(styleCond, d.data.WindGust, leftX+leftW-10, y)
 	}
-	canvas.DrawText("regular", d.data.Location, 64, 350, nil, true)
-	canvas.DrawText("large", "Humidity:", 360, 120, nil, true)
-	canvas.DrawText("large", d.data.Humidity, 560, 120, nil, true)
-	canvas.DrawText("large", "Dewpoint:", 360, 150, nil, true)
-	canvas.DrawText("large", d.data.Dewpoint, 560, 150, nil, true)
-	canvas.DrawText("large", "Ceiling:", 360, 180, nil, true)
-	canvas.DrawText("large", d.data.Ceiling+d.data.CeilingUnit, 560, 180, nil, true)
-	canvas.DrawText("large", "Visibility:", 360, 210, nil, true)
-	canvas.DrawText("large", d.data.Visibility+d.data.VisibilityUnit, 560, 210, nil, true)
-	canvas.DrawText("large", "Pressure:", 360, 240, nil, true)
-	canvas.DrawText("large", d.data.Pressure+" "+d.data.PressureDir, 560, 240, nil, true)
+
+	// right column: location + data rows
+	ry := top
+	c.Text(styleLoc, d.data.Location, rightX, ry+4)
+	ry += 4 + 32 + 10 // location padding-top 4, height 32, margin-bottom 10
+
+	row := func(label, value string, style render.Style) {
+		c.Text(style, label, rightX+20, ry)
+		c.TextRight(style, value, rightX+rightW-10, ry)
+		ry += 36 // line-height 24 + margin-bottom 12
+	}
+	row("Humidity:", d.data.Humidity, styleRow)
+	row("Dewpoint:", d.data.Dewpoint, styleRow)
+	row("Ceiling:", d.data.Ceiling, styleRow)
+	row("Visibility:", d.data.Visibility, styleRow)
+	row("Pressure:", d.data.Pressure+" "+d.data.PressureDir, styleRow)
 	if d.data.HeatIndexLabel != "" {
-		canvas.DrawText("large", d.data.HeatIndexLabel, 360, 280, nil, true)
-		canvas.DrawText("large", d.data.HeatIndex, 560, 280, nil, true)
+		heatStyle := styleRow
+		if d.data.HeatIndexLabel == "Heat Index:" {
+			heatStyle.Color = colHeatIndex
+		} else {
+			heatStyle.Color = colExtendedLow
+		}
+		row(d.data.HeatIndexLabel, d.data.HeatIndex, heatStyle)
 	}
 	return nil
 }
 
-func (d *CurrentWeatherDisplay) TickerText() string {
+// TickerSegments exposes the bottom-bar text segments.
+func (d *CurrentWeatherDisplay) TickerSegments() []string {
 	if d.data == nil {
-		return ""
+		return nil
 	}
-	return d.data.TickerText
+	return d.data.tickerSegments
 }

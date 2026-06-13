@@ -2,8 +2,10 @@ package app
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/amcchord/ws4000/internal/config"
@@ -24,13 +26,15 @@ type App struct {
 	progress *progress.Display
 	music    *music.Player
 	params   *engine.WeatherParams
-	playing  bool
-	tickerX  int
-	ticker   string
-	showProgress bool
+
+	playing     bool
+	autoStarted bool
+
+	tickerIndex    int
+	tickerLastFlip time.Time
 }
 
-func New(cfg config.Config) (*App, error) {
+func New(cfg config.Config, headless bool) (*App, error) {
 	scale := cfg.Scale
 	if scale <= 0 {
 		scale = 2
@@ -39,7 +43,7 @@ func New(cfg config.Config) (*App, error) {
 		Title:      "WeatherStar 4000+",
 		Fullscreen: cfg.Fullscreen,
 		Scale:      scale,
-		Scanlines:  cfg.Scanlines,
+		Headless:   headless,
 	})
 	if err != nil {
 		return nil, err
@@ -50,38 +54,23 @@ func New(cfg config.Config) (*App, error) {
 	nav := engine.NewNavigator(cfg.Speed)
 	displays.RegisterAll(nav, svc, cfg)
 
-	player, err := music.NewPlayer(cfg.Volume, cfg.MusicDir)
-	if err != nil {
-		win.Close()
-		return nil, err
-	}
-
-	a := &App{
-		cfg:          cfg,
-		window:       win,
-		nav:          nav,
-		svc:          svc,
-		progress:     progress.New(len(nav.Displays())),
-		music:        player,
-		showProgress: true,
-	}
-	nav.SetStatusCallback(func() {
-		a.progress.Update(nav.Displays(), nav.LoadedCount())
-		if nav.LoadedCount() >= countEnabled(nav.Displays()) {
-			a.showProgress = false
-		}
-	})
-	return a, nil
-}
-
-func countEnabled(disps []engine.Display) int {
-	n := 0
-	for _, d := range disps {
-		if d.Enabled() {
-			n++
+	var player *music.Player
+	if !headless {
+		player, err = music.NewPlayer(cfg.Volume, cfg.MusicDir)
+		if err != nil {
+			// audio is non-fatal (e.g. no audio device on a headless Pi)
+			player = nil
 		}
 	}
-	return n
+
+	return &App{
+		cfg:      cfg,
+		window:   win,
+		nav:      nav,
+		svc:      svc,
+		progress: progress.New(),
+		music:    player,
+	}, nil
 }
 
 func (a *App) LoadWeather() error {
@@ -98,135 +87,162 @@ func (a *App) LoadWeather() error {
 	return nil
 }
 
-func (a *App) Run(screenshotPath string) error {
+// allEnabledSettled reports whether every enabled display finished loading (or failed).
+func (a *App) allEnabledSettled() bool {
+	for _, d := range a.nav.Displays() {
+		if d.Enabled() && d.Status() == engine.StatusLoading {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *App) anyLoaded() bool {
+	for _, d := range a.nav.Displays() {
+		if d.Enabled() && d.Status() == engine.StatusLoaded {
+			return true
+		}
+	}
+	return false
+}
+
+// Run is the main loop. If screenshotPath is set, waits for data, renders the
+// requested display (screenshotDisplay or first playable) once and exits.
+func (a *App) Run(screenshotPath, screenshotDisplay string) error {
 	if err := a.LoadWeather(); err != nil {
 		return err
 	}
 
+	if screenshotPath != "" {
+		return a.runScreenshot(screenshotPath, screenshotDisplay)
+	}
+
+	frame := time.NewTicker(33 * time.Millisecond) // ~30fps
+	defer frame.Stop()
+
 	for {
-		if err := a.renderFrame(); err != nil {
+		// auto-start playback once everything settles (kiosk behavior)
+		if !a.autoStarted && a.allEnabledSettled() && a.anyLoaded() {
+			a.autoStarted = true
+			a.playing = true
+			a.nav.SetPlaying(true)
+			if a.music != nil {
+				_ = a.music.Play()
+			}
+		}
+
+		a.renderFrame()
+		if err := a.window.Present(); err != nil {
 			return err
 		}
-		if screenshotPath != "" {
-			if err := a.window.SaveScreenshot(screenshotPath); err != nil {
-				return err
+
+		// drain events
+		for {
+			event, quit := a.window.PollEvent()
+			if quit {
+				return nil
 			}
-			return nil
+			if event == nil {
+				break
+			}
+			a.handleEvent(event)
 		}
-		event, quit := a.window.PollEvent()
-		if quit {
-			return nil
-		}
-		a.handleEvent(event)
-		sdl.Delay(16)
+		<-frame.C
 	}
 }
 
-func (a *App) renderFrame() error {
+func (a *App) runScreenshot(path, displayID string) error {
+	// wait up to 60s for displays to settle
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.allEnabledSettled() {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	for _, d := range a.nav.Displays() {
+		fmt.Fprintf(os.Stderr, "%-22s %s\n", d.ID(), d.Status())
+	}
+	a.playing = true
+	a.nav.SetPlaying(true)
+
+	// navigate to the requested display
+	if displayID != "" {
+		if !a.nav.ShowDisplayByID(displayID) {
+			fmt.Fprintf(os.Stderr, "display %q not found\n", displayID)
+		}
+	}
+	// let the display settle on its first screen
+	time.Sleep(100 * time.Millisecond)
+	a.renderFrame()
+	_ = a.window.Present()
+	return a.window.SaveScreenshot(path)
+}
+
+func (a *App) renderFrame() {
 	canvas := a.window.Canvas()
 	canvas.Clear()
-	canvas.DrawScanlines(a.cfg.Scanlines)
 
-	if a.showProgress {
-		a.progress.Draw(canvas)
+	current := a.nav.CurrentDisplay()
+	if current == nil {
+		_ = a.progress.Draw(canvas, a.nav.Displays(), a.params)
 	} else {
-		d := a.nav.CurrentDisplay()
-		if d == nil {
-			a.progress.Draw(canvas)
-		} else {
-			_ = d.Draw(canvas, d.ScreenIndex())
-			if d.ShowClock() {
-				a.drawClock(canvas)
-			}
-			if d.ShowTicker() {
-				a.drawTicker(canvas)
-			}
+		_ = current.Draw(canvas, current.ScreenIndex())
+		if current.OkToDrawTicker() {
+			a.drawTicker(canvas)
 		}
 	}
-	return a.window.Present()
+
+	if a.cfg.Scanlines {
+		canvas.ApplyScanlines()
+	}
 }
 
-func (a *App) drawClock(canvas engine.Canvas) {
-	if a.params == nil {
+// drawTicker renders the bottom scroll area (currentweatherscroll.mjs):
+// segments cycle every 4 seconds.
+func (a *App) drawTicker(canvas *render.Canvas) {
+	segments := a.tickerSegments()
+	if len(segments) == 0 {
 		return
 	}
-	loc, err := time.LoadLocation(a.params.TimeZone)
-	if err != nil {
-		loc = time.Local
+	if time.Since(a.tickerLastFlip) > 4*time.Second {
+		a.tickerIndex++
+		a.tickerLastFlip = time.Now()
 	}
-	now := time.Now().In(loc)
-	canvas.DrawTextRight("small", now.Format("03:04:05 PM"), 620, 8, nil, true)
-	canvas.DrawTextRight("small", now.Format("Mon Jan 02"), 620, 22, nil, true)
+	seg := segments[a.tickerIndex%len(segments)]
+
+	style := render.Style{Family: render.FontStar4000, Size: 32, Color: color.RGBA{R: 255, G: 255, B: 255, A: 255}, Shadow: true}
+	canvas.Text(style, seg, 55, 419)
 }
 
-func (a *App) drawTicker(canvas engine.Canvas) {
-	canvas.DrawRect(64, 430, 512, 28, nil)
-	text := a.tickerText()
-	if text == "" {
-		text = "WEATHERSTAR 4000+"
-	}
-	a.tickerX--
-	if a.tickerX < -len(text)*8 {
-		a.tickerX = 640
-	}
-	canvas.DrawText("regular", text, a.tickerX, 438, nil, true)
-}
-
-func (a *App) tickerText() string {
+func (a *App) tickerSegments() []string {
+	var segments []string
 	for _, d := range a.nav.Displays() {
-		if cw, ok := d.(interface{ TickerText() string }); ok {
-			if t := cw.TickerText(); t != "" {
-				return t
+		if hz, ok := d.(*displays.HazardsDisplay); ok {
+			for _, t := range hz.HazardTexts() {
+				if len(t) > 80 {
+					t = t[:80]
+				}
+				segments = append(segments, strings.ToUpper(t))
+				break // one hazard segment like upstream screen 0
 			}
+		}
+		if cw, ok := d.(*displays.CurrentWeatherDisplay); ok {
+			segments = append(segments, cw.TickerSegments()...)
 		}
 	}
 	if a.cfg.CustomScroll != "" {
-		parts := splitScroll(a.cfg.CustomScroll)
-		if len(parts) > 0 {
-			return parts[time.Now().Unix()%int64(len(parts))]
+		for _, part := range strings.Split(a.cfg.CustomScroll, "|") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				segments = append(segments, part)
+			}
 		}
 	}
-	return ""
-}
-
-func splitScroll(s string) []string {
-	var out []string
-	for _, p := range splitPipe(s) {
-		p = trimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-func splitPipe(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '|' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
-}
-
-func trimSpace(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
-		s = s[1:]
-	}
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
-		s = s[:len(s)-1]
-	}
-	return s
+	return segments
 }
 
 func (a *App) handleEvent(event sdl.Event) {
-	if event == nil {
-		return
-	}
 	key, ok := event.(*sdl.KeyboardEvent)
 	if !ok || key.Type != sdl.KEYDOWN {
 		return
@@ -235,10 +251,12 @@ func (a *App) handleEvent(event sdl.Event) {
 	case sdl.K_SPACE:
 		a.playing = !a.playing
 		a.nav.SetPlaying(a.playing)
-		if a.playing {
-			_ = a.music.Play()
-		} else {
-			a.music.Stop()
+		if a.music != nil {
+			if a.playing {
+				_ = a.music.Play()
+			} else {
+				a.music.Stop()
+			}
 		}
 	case sdl.K_RIGHT:
 		a.nav.NavNextManual()
@@ -250,6 +268,7 @@ func (a *App) handleEvent(event sdl.Event) {
 }
 
 func (a *App) Close() {
+	a.nav.SetPlaying(false)
 	if a.music != nil {
 		a.music.Close()
 	}
@@ -259,5 +278,5 @@ func (a *App) Close() {
 }
 
 func (a *App) String() string {
-	return fmt.Sprintf("ws4000 app playing=%v", a.playing)
+	return fmt.Sprintf("ws4000 playing=%v", a.playing)
 }

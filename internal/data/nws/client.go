@@ -189,6 +189,7 @@ type ForecastPeriod struct {
 	StartTime         string `json:"startTime"`
 	EndTime           string `json:"endTime"`
 	IsDaytime         bool   `json:"isDaytime"`
+	Icon              string `json:"icon"`
 }
 
 type HourlyResponse struct {
@@ -204,8 +205,30 @@ type HourlyPeriod struct {
 	Temperature         int       `json:"temperature"`
 	TemperatureUnit     string    `json:"temperatureUnit"`
 	WindSpeed           string    `json:"windSpeed"`
+	WindDirection       string    `json:"windDirection"`
 	ShortForecast       string    `json:"shortForecast"`
+	Icon                string    `json:"icon"`
+	IsDaytime           bool      `json:"isDaytime"`
+	Dewpoint            ValueUnit `json:"dewpoint"`
+	RelativeHumidity    ValueUnit `json:"relativeHumidity"`
 	ProbabilityOfPrecipitation ValueUnit `json:"probabilityOfPrecipitation"`
+}
+
+type GridDataResponse struct {
+	Properties GridDataProperties `json:"properties"`
+}
+
+type GridDataProperties struct {
+	SkyCover GridSeries `json:"skyCover"`
+}
+
+type GridSeries struct {
+	Values []GridValue `json:"values"`
+}
+
+type GridValue struct {
+	ValidTime string   `json:"validTime"`
+	Value     *float64 `json:"value"`
 }
 
 type AlertsResponse struct {
@@ -241,7 +264,7 @@ func (c *Client) GetStations(urlStr string) (*StationsResponse, error) {
 }
 
 func (c *Client) GetObservations(stationURL string, limit int) (*ObservationResponse, error) {
-	u, err := url.Parse(stationURL)
+	u, err := url.Parse(strings.TrimSuffix(stationURL, "/") + "/observations")
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +312,14 @@ func (c *Client) GetHourly(forecastURL, units string) (*HourlyResponse, error) {
 	u.RawQuery = q.Encode()
 	var resp HourlyResponse
 	if err := c.GetJSON(u.String(), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) GetGridData(gridURL string) (*GridDataResponse, error) {
+	var resp GridDataResponse
+	if err := c.GetJSON(gridURL, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

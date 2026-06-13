@@ -20,6 +20,7 @@ type Flags struct {
 	MusicDir     string
 	FixtureDir   string
 	Screenshot   string
+	Display      string
 	ListDisplays bool
 	Enable       []string
 	Disable      []string
@@ -40,6 +41,7 @@ func ParseFlags() Flags {
 	flag.StringVar(&f.MusicDir, "music-dir", "", "Directory of MP3 music files")
 	flag.StringVar(&f.FixtureDir, "fixture", "", "Use API fixtures from directory")
 	flag.StringVar(&f.Screenshot, "screenshot", "", "Save screenshot and exit")
+	flag.StringVar(&f.Display, "display", "", "Display id to capture with --screenshot")
 	flag.BoolVar(&f.ListDisplays, "list-displays", false, "List displays and exit")
 	enable := flag.String("enable", "", "Enable display (repeat with comma)")
 	disable := flag.String("disable", "", "Disable display (repeat with comma)")
