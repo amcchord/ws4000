@@ -8,8 +8,15 @@ import (
 	"github.com/amcchord/ws4000/internal/config"
 )
 
+// version is set at build time via -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	flags := config.ParseFlags()
+	if flags.Version {
+		fmt.Printf("ws4000 %s\n", version)
+		return
+	}
 	if flags.ListDisplays {
 		config.PrintDisplays()
 		return

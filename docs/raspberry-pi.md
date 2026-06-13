@@ -1,76 +1,88 @@
 # Raspberry Pi Setup
 
-WeatherStar 4000+ native (`ws4000`) runs on Raspberry Pi OS with SDL2. For a kiosk display attached via HDMI, you can run directly on the console without a desktop environment.
+ws4000 runs nicely on a Raspberry Pi as a dedicated weather display — windowed
+on the desktop, or fullscreen straight on the console with no X11/Wayland via
+SDL2's KMSDRM backend.
 
-## Install Dependencies
+## Which download do I need?
+
+| Board | OS | Artifact |
+|-------|----|----------|
+| Pi 4, Pi 5 | Raspberry Pi OS (64-bit) | `linux-arm64` |
+| Pi 3, Pi Zero 2 W | Raspberry Pi OS (64-bit) | `linux-arm64` |
+| Pi 3, Pi Zero 2 W | Raspberry Pi OS (32-bit) | `linux-armv7` |
+
+Check with `uname -m`: `aarch64` → arm64, `armv7l` → armv7.
+
+A Pi Zero 2 W handles the displays fine; radar processing takes a few extra
+seconds at startup. The original Pi Zero / Pi 1 (ARMv6) are not supported.
+
+## Install
 
 ```bash
+# runtime libraries
 sudo apt update
-sudo apt install -y libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev pkg-config git
+sudo apt install -y libsdl2-2.0-0 libsdl2-ttf-2.0-0 libsdl2-mixer-2.0-0
+
+# download and unpack (pick your artifact from the releases page)
+wget https://github.com/amcchord/ws4000/releases/latest/download/ws4000-linux-arm64.tar.gz
+tar xzf ws4000-linux-arm64.tar.gz
+cd ws4000-linux-arm64
+
+# first run — geo-locates your IP automatically
+./ws4000
 ```
-
-## Build
-
-```bash
-git clone https://github.com/amcchord/ws4000.git
-cd ws4000
-./tools/vendor-assets.sh
-go build -o ws4000 ./cmd/ws4000
-```
-
-Or download a prebuilt `ws4000-linux-armv7` binary from GitHub Releases.
 
 ## Configure
 
 ```bash
 mkdir -p ~/.config/ws4000
-cp configs/config.example.toml ~/.config/ws4000/config.toml
-# Edit location and display settings
-nano ~/.config/ws4000/config.toml
+cp configs/kiosk.toml ~/.config/ws4000/config.toml
+nano ~/.config/ws4000/config.toml   # set your location
 ```
 
-## Windowed Mode (Desktop)
+See [configuration.md](configuration.md) for all options.
+
+## Console kiosk (no desktop required)
+
+SDL2's KMSDRM backend draws directly to the display. From a text console
+(not inside X/Wayland):
 
 ```bash
-./ws4000 --location "Your City, ST, USA"
+SDL_VIDEODRIVER=kmsdrm ./ws4000 --fullscreen
 ```
 
-Press **Space** to start playback, **F** for fullscreen.
-
-## Console Kiosk (KMSDRM)
-
-For a dedicated weather display on the console without X11/Wayland:
+If you get a permissions error, add your user to the input/video groups:
 
 ```bash
-# Install to system path with assets
-sudo mkdir -p /usr/share/ws4000
-sudo cp ws4000 /usr/local/bin/
-sudo cp -r assets/upstream /usr/share/ws4000/assets/
-
-export WS4000_ASSETS=/usr/share/ws4000/assets/upstream
-export SDL_VIDEODRIVER=kmsdrm
-export SDL_AUDIODRIVER=alsa
-
-/usr/local/bin/ws4000 --fullscreen --location "Your City, ST, USA"
+sudo usermod -aG video,input,render $USER
+# log out and back in
 ```
 
-## systemd Service
+## Start on boot (systemd)
+
+Install to a system path:
+
+```bash
+sudo mkdir -p /opt/ws4000
+sudo cp -r ./* /opt/ws4000/
+```
 
 Create `/etc/systemd/system/ws4000.service`:
 
 ```ini
 [Unit]
-Description=WeatherStar 4000+ Native
+Description=WeatherStar 4000+
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
-Environment=WS4000_ASSETS=/usr/share/ws4000/assets/upstream
+WorkingDirectory=/opt/ws4000
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=alsa
-ExecStart=/usr/local/bin/ws4000 --fullscreen --config /home/pi/.config/ws4000/config.toml
+ExecStart=/opt/ws4000/ws4000 --fullscreen --config /home/pi/.config/ws4000/config.toml
 Restart=on-failure
 RestartSec=30
 
@@ -78,28 +90,34 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-Enable and start:
+Enable it:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ws4000
-sudo systemctl start ws4000
+sudo systemctl enable --now ws4000
 ```
 
-## Autostart on Boot (Desktop)
+The display starts playing automatically once the forecast data loads.
 
-Add to `~/.config/autostart/ws4000.desktop`:
+## Desktop autostart (alternative)
+
+If you run the Pi desktop, create `~/.config/autostart/ws4000.desktop`:
 
 ```ini
 [Desktop Entry]
 Type=Application
 Name=WeatherStar 4000+
-Exec=/home/pi/ws4000/ws4000 --fullscreen
+Exec=/opt/ws4000/ws4000 --fullscreen
 X-GNOME-Autostart-enabled=true
 ```
 
-## Notes
+## Tips
 
-- Requires network access for NOAA `api.weather.gov` (US locations only)
-- Assets must be present at `assets/upstream/` or via `WS4000_ASSETS`
-- Use `--fixture ./testdata/fixtures` for offline layout testing
+- **Performance:** all rendering happens on a 640x480 canvas scaled by the
+  GPU, so even a Pi Zero 2 keeps up after the initial data load.
+- **Music:** set `volume = 0.3` in the config; over HDMI make sure
+  `SDL_AUDIODRIVER=alsa` and HDMI audio is the default sink.
+- **Screen blanking:** disable console blanking for kiosks:
+  `sudo raspi-config` → Display Options → Screen Blanking → No.
+- **Offline testing:** record API responses once, then replay with
+  `--fixture` (see configuration.md).

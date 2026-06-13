@@ -1,6 +1,8 @@
 package weather
 
 import (
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/amcchord/ws4000/internal/data/geo"
@@ -16,18 +18,32 @@ func NewService(cacheDir, fixtureDir string) *Service {
 	return &Service{Client: nws.NewClient(cacheDir, fixtureDir)}
 }
 
+// ResolveLocation determines the forecast location. Priority:
+//  1. explicit latitude/longitude
+//  2. a location query string (geocoded), unless set to "auto"
+//  3. geo-IP lookup of the machine's public IP
+//  4. a built-in fallback so the app always starts
 func (s *Service) ResolveLocation(location string, lat, lon float64) (float64, float64, string, error) {
 	if lat != 0 || lon != 0 {
 		return lat, lon, "", nil
 	}
-	if location == "" {
-		location = "Orlando International Airport, Orlando, FL, USA"
+	if location != "" && !strings.EqualFold(location, "auto") {
+		result, err := geo.Geocode(location)
+		if err != nil {
+			return 0, 0, "", fmt.Errorf("could not geocode %q: %w", location, err)
+		}
+		return result.Latitude, result.Longitude, result.Name, nil
 	}
-	result, err := geo.Geocode(location)
-	if err != nil {
-		return 0, 0, "", err
+
+	if ip, err := geo.LocateByIP(); err == nil {
+		name := strings.TrimSpace(ip.City + ", " + ip.Region)
+		fmt.Fprintf(os.Stderr, "ws4000: using geo-IP location %s (%.4f, %.4f)\n", name, ip.Latitude, ip.Longitude)
+		return ip.Latitude, ip.Longitude, name, nil
 	}
-	return result.Latitude, result.Longitude, result.Name, nil
+
+	// last resort so the display still comes up
+	fmt.Fprintln(os.Stderr, "ws4000: geo-IP lookup failed, defaulting to Orlando FL (set location in config)")
+	return 28.431, -81.3076, "Orlando, FL", nil
 }
 
 func (s *Service) BuildParams(lat, lon float64, units string) (*engine.WeatherParams, error) {

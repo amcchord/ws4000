@@ -22,13 +22,14 @@ type Flags struct {
 	Screenshot   string
 	Display      string
 	ListDisplays bool
+	Version      bool
 	Enable       []string
 	Disable      []string
 }
 
 func ParseFlags() Flags {
 	var f Flags
-	flag.StringVar(&f.Location, "location", "", "Location query (geocoded)")
+	flag.StringVar(&f.Location, "location", "", "Location query (geocoded), or 'auto' for geo-IP")
 	flag.Float64Var(&f.Latitude, "lat", 0, "Latitude")
 	flag.Float64Var(&f.Longitude, "lon", 0, "Longitude")
 	flag.StringVar(&f.ConfigPath, "config", "", "Config file path")
@@ -43,6 +44,7 @@ func ParseFlags() Flags {
 	flag.StringVar(&f.Screenshot, "screenshot", "", "Save screenshot and exit")
 	flag.StringVar(&f.Display, "display", "", "Display id to capture with --screenshot")
 	flag.BoolVar(&f.ListDisplays, "list-displays", false, "List displays and exit")
+	flag.BoolVar(&f.Version, "version", false, "Print version and exit")
 	enable := flag.String("enable", "", "Enable display (repeat with comma)")
 	disable := flag.String("disable", "", "Disable display (repeat with comma)")
 	flag.Parse()

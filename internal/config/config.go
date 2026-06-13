@@ -29,6 +29,7 @@ type Config struct {
 
 func Default() Config {
 	return Config{
+		Location:  "auto",
 		Units:     "us",
 		Scale:     2,
 		Speed:     1.0,

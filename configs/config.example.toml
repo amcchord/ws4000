@@ -1,19 +1,35 @@
-# WeatherStar 4000+ native configuration
+# WeatherStar 4000+ native — full configuration example
+# Copy to ~/.config/ws4000/config.toml and edit.
+# Every value shown here is the default unless noted.
 
-location = "Orlando International Airport, Orlando, FL, USA"
+# --- Location -------------------------------------------------------------
+# "auto" geo-locates your public IP address (city-level accuracy).
+# Or use a free-text query: "Orlando, FL", "30301", "Portland International Airport"
+# Or set latitude/longitude below for an exact position (overrides location).
+location = "auto"
 # latitude = 28.431
 # longitude = -81.3076
 
-units = "us"
-fullscreen = false
-scale = 2
-speed = 1.0
-scanlines = false
-volume = 0.0
-# music_dir = "/path/to/music"
-# custom_scroll = "Welcome to WeatherStar|Thanks for watching"
-refresh_ms = 600000
+# --- Display --------------------------------------------------------------
+units = "us"          # "us" or "metric"
+fullscreen = false    # F key toggles at runtime
+scale = 2             # window size: 2 = 1280x960, 3 = 1920x1440 ...
+speed = 1.0           # 0.5 very fast .. 1.0 normal .. 1.5 very slow
+scanlines = false     # retro CRT effect
 
+# --- Music ----------------------------------------------------------------
+volume = 0.0          # 0.0 muted .. 1.0 full; bundled tracks play when > 0
+# music_dir = "/home/pi/music"   # use your own .mp3 files instead
+
+# --- Ticker ---------------------------------------------------------------
+# Custom messages mixed into the bottom scroll, separated by |
+# custom_scroll = "Welcome to WeatherStar|Thanks for watching"
+
+# --- Data -----------------------------------------------------------------
+refresh_ms = 600000   # weather refresh interval in milliseconds (10 min)
+
+# --- Selected displays ----------------------------------------------------
+# true = shown in the rotation. Matching the web version's defaults.
 [displays]
 hazards = true
 current-weather = true

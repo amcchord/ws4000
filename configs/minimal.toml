@@ -1,0 +1,2 @@
+# Smallest useful config: pin a location, defaults for everything else.
+location = "Orlando, FL"

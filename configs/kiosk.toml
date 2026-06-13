@@ -1,0 +1,23 @@
+# Fullscreen kiosk for a dedicated display (e.g. Raspberry Pi on a TV).
+# Pair with the systemd unit in docs/raspberry-pi.md for boot-to-weather.
+
+location = "auto"     # or pin your city: "Burlington, VT"
+units = "us"
+fullscreen = true
+speed = 1.0
+scanlines = true      # looks great on a CRT-style setup; set false for LCD
+volume = 0.3          # background music on
+
+[displays]
+hazards = true
+current-weather = true
+latest-observations = true
+hourly = false
+hourly-graph = true
+travel = false
+regional-forecast = true
+local-forecast = true
+extended-forecast = true
+almanac = true
+spc-outlook = true
+radar = true

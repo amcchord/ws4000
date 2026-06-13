@@ -1,0 +1,4 @@
+# Metric units example. Note: data still comes from NOAA, so only
+# US locations are supported even with metric display units.
+location = "auto"
+units = "metric"
