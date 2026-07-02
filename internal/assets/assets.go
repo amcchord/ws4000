@@ -17,9 +17,10 @@ var (
 
 func Root() (string, error) {
 	rootOnce.Do(func() {
+		// an explicit WS4000_ASSETS always wins
 		candidates := []string{
-			"assets/upstream",
 			os.Getenv("WS4000_ASSETS"),
+			"assets/upstream",
 			"/usr/share/ws4000/assets",
 		}
 		if exe, err := os.Executable(); err == nil {

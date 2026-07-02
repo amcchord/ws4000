@@ -232,16 +232,17 @@ func (d *RegionalForecastDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 	wg.Wait()
 
-	d.cities = nil
+	var cities []regionalCityData
 	for _, r := range results {
 		if r.ok {
-			d.cities = append(d.cities, r.data)
+			cities = append(cities, r.data)
 		}
 	}
-	if len(d.cities) == 0 {
+	if len(cities) == 0 {
 		d.SetStatus(engine.StatusFailed)
 		return nil
 	}
+	d.cities = cities
 
 	// screen titles: current observations, then the next two period names
 	d.screenNames = [3]string{"Observations", "Forecast", "Forecast"}

@@ -54,7 +54,7 @@ func (d *LocalForecastDisplay) Fetch(params *engine.WeatherParams) error {
 	// Each period becomes "NAME...TEXT", wrapped to the box width, split into
 	// pages of up to 7 lines (280px / 40px line height).
 	const maxLines = 7
-	d.pages = nil
+	var pages [][]string
 	var delays []int
 	for _, p := range periods {
 		text := p.Name + "..." + strings.ReplaceAll(p.DetailedForecast, "...", " ")
@@ -65,7 +65,7 @@ func (d *LocalForecastDisplay) Fetch(params *engine.WeatherParams) error {
 				end = len(lines)
 			}
 			page := lines[start:end]
-			d.pages = append(d.pages, page)
+			pages = append(pages, page)
 			// upstream content-aware timing: 1 line 0.6x, 2 lines 0.8x, 6+ 1.4x, else 1x of 5s
 			var mult float64
 			switch {
@@ -81,6 +81,7 @@ func (d *LocalForecastDisplay) Fetch(params *engine.WeatherParams) error {
 			delays = append(delays, int(mult*5000/250))
 		}
 	}
+	d.pages = pages
 	d.Timing().BaseDelayMS = 250
 	d.Timing().Delay = delays
 	d.Timing().CalcNavTiming()
@@ -183,18 +184,18 @@ func (d *ExtendedForecastDisplay) Fetch(params *engine.WeatherParams) error {
 	periods := filterExpired(forecast.Properties.Periods)
 
 	// pair day/night periods into days (upstream extendedforecast.mjs parse)
-	d.days = nil
+	var days []extendedDay
 	i := 0
 	// skip a leading night period so days start with daytime
 	if len(periods) > 0 && !periods[0].IsDaytime {
 		i = 1
 	}
-	for ; i+1 < len(periods) && len(d.days) < 6; i += 2 {
+	for ; i+1 < len(periods) && len(days) < 6; i += 2 {
 		day := periods[i]
 		night := periods[i+1]
 		t, _ := time.Parse(time.RFC3339, day.StartTime)
 		cond := shortenCondition(day.ShortForecast)
-		d.days = append(d.days, extendedDay{
+		days = append(days, extendedDay{
 			Name:      strings.ToUpper(t.Format("Mon")),
 			Icon:      icons.LargeIcon(day.Icon),
 			Condition: cond,
@@ -203,10 +204,11 @@ func (d *ExtendedForecastDisplay) Fetch(params *engine.WeatherParams) error {
 			HasLow:    true,
 		})
 	}
-	if len(d.days) == 0 {
+	if len(days) == 0 {
 		d.SetStatus(engine.StatusNoData)
 		return nil
 	}
+	d.days = days
 	screens := (len(d.days) + 2) / 3
 	d.Timing().TotalScreens = screens
 	d.Timing().Delay = screens
@@ -326,29 +328,30 @@ func (d *HazardsDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 	alerts, err := d.svc.Client.GetAlerts(params.ZoneID)
 	if err != nil {
+		// keep whatever state we had; TotalScreens stays 0 until a load succeeds
 		d.SetStatus(engine.StatusFailed)
-		d.Timing().TotalScreens = 0
 		return nil
 	}
-	d.lines = nil
-	d.texts = nil
+	var lines, texts []string
 	for _, f := range alerts.Features {
 		// only significant alerts get the full-screen treatment upstream
 		if f.Properties.Severity != "Extreme" && f.Properties.Severity != "Severe" {
 			continue
 		}
 		text := f.Properties.Event + " " + f.Properties.Description
-		d.texts = append(d.texts, text)
-		d.lines = append(d.lines, wrapTextWidth(strings.ToUpper(text), 480)...)
+		texts = append(texts, text)
+		lines = append(lines, wrapTextWidth(strings.ToUpper(text), 480)...)
 	}
-	if len(d.lines) == 0 {
+	d.lines = lines
+	d.texts = texts
+	if len(lines) == 0 {
 		d.Timing().TotalScreens = 0
 		d.SetStatus(engine.StatusNoData)
 		return nil
 	}
 	// scroll through pages of 9 lines
 	const perPage = 9
-	pages := (len(d.lines) + perPage - 1) / perPage
+	pages := (len(lines) + perPage - 1) / perPage
 	d.Timing().TotalScreens = pages
 	d.Timing().Delay = 2
 	d.Timing().CalcNavTiming()

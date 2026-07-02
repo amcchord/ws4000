@@ -120,6 +120,14 @@ func (a *App) Run(screenshotPath, screenshotDisplay string) error {
 	frame := time.NewTicker(33 * time.Millisecond) // ~30fps
 	defer frame.Stop()
 
+	// periodic silent data refresh (upstream default: 10 minutes)
+	refreshEvery := time.Duration(a.cfg.RefreshMS) * time.Millisecond
+	if refreshEvery < 5*time.Minute {
+		refreshEvery = 5 * time.Minute
+	}
+	refresh := time.NewTicker(refreshEvery)
+	defer refresh.Stop()
+
 	for {
 		// auto-start playback once everything settles (kiosk behavior)
 		if !a.autoStarted && a.allEnabledSettled() && a.anyLoaded() {
@@ -129,6 +137,19 @@ func (a *App) Run(screenshotPath, screenshotDisplay string) error {
 			if a.music != nil {
 				_ = a.music.Play()
 			}
+		}
+
+		select {
+		case <-refresh.C:
+			if a.params != nil {
+				a.nav.FetchAll(a.params)
+			}
+		default:
+		}
+
+		// advance the music playlist when a track finishes
+		if a.playing && a.music != nil {
+			a.music.Poll()
 		}
 
 		a.renderFrame()

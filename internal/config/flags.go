@@ -60,6 +60,9 @@ func ParseFlags() Flags {
 func Merge(base Config, flags Flags) Config {
 	if flags.Location != "" {
 		base.Location = flags.Location
+		// an explicit --location must win over coordinates from the config file
+		base.Latitude = 0
+		base.Longitude = 0
 	}
 	if flags.Latitude != 0 {
 		base.Latitude = flags.Latitude

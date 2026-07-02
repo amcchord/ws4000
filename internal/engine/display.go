@@ -64,6 +64,7 @@ type BaseDisplay struct {
 	navID          int
 	enabled        bool
 	status         LoadStatus
+	hasData        bool // has successfully loaded at least once
 	timing         Timing
 	screenIndex    int
 	navBaseCount   int
@@ -131,8 +132,17 @@ func (d *BaseDisplay) SetEnabled(v bool) {
 
 func (d *BaseDisplay) SetStatus(s LoadStatus) {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	// silent-refresh semantics (like upstream): once a display has data,
+	// a failed re-fetch keeps the old data on screen instead of dropping
+	// the display out of the rotation
+	if s == StatusFailed && d.hasData {
+		return
+	}
+	if s == StatusLoaded {
+		d.hasData = true
+	}
 	d.status = s
-	d.mu.Unlock()
 }
 
 func (d *BaseDisplay) SetNavCallback(fn func(id string, resp NavResponse)) {
@@ -140,13 +150,21 @@ func (d *BaseDisplay) SetNavCallback(fn func(id string, resp NavResponse)) {
 }
 
 // BeginFetch stores params and resets status; returns false if display disabled.
+// Once a display has loaded data, subsequent fetches are silent refreshes: the
+// status stays Loaded so the rotation is not interrupted.
 func (d *BaseDisplay) BeginFetch(params *WeatherParams) bool {
 	d.params = params
 	if !d.enabled {
-		d.SetStatus(StatusDisabled)
+		d.mu.Lock()
+		d.status = StatusDisabled
+		d.mu.Unlock()
 		return false
 	}
-	d.SetStatus(StatusLoading)
+	d.mu.Lock()
+	if !d.hasData {
+		d.status = StatusLoading
+	}
+	d.mu.Unlock()
 	d.timing.CalcNavTiming()
 	return true
 }

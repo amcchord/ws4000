@@ -123,7 +123,9 @@ func (d *RadarDisplay) Fetch(params *engine.WeatherParams) error {
 	loc := params.TZ()
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	d.frames = nil
+	// build into a local slice; a single assignment below keeps the render
+	// thread from seeing a partially-populated frame list during refreshes
+	var frames []radarFrame
 	for _, u := range urls {
 		m := radarFileRegex.FindStringSubmatch(u)
 		if m == nil {
@@ -137,13 +139,13 @@ func (d *RadarDisplay) Fetch(params *engine.WeatherParams) error {
 		if err != nil {
 			continue
 		}
-		d.frames = append(d.frames, radarFrame{img: frame, time: ts.In(loc)})
+		frames = append(frames, radarFrame{img: frame, time: ts.In(loc)})
 	}
-	if len(d.frames) == 0 {
+	if len(frames) == 0 {
 		d.SetStatus(engine.StatusFailed)
-		d.Timing().TotalScreens = 0
 		return nil
 	}
+	d.frames = frames
 	d.Timing().CalcNavTiming()
 	d.SetStatus(engine.StatusLoaded)
 	return nil

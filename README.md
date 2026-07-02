@@ -40,7 +40,7 @@ cd ws4000-*-linux-arm64
 | Raspberry Pi 3 / Zero 2 (32-bit OS) | `linux-armv7` | same as above |
 | Linux x86_64 | `linux-x64` | same as above |
 | macOS Apple Silicon | `macos-arm64` | `brew install sdl2 sdl2_ttf sdl2_mixer` |
-| macOS Intel | `macos-x64` | same as above |
+| macOS Intel | build from source ([docs/building.md](docs/building.md)) | `brew install sdl2 sdl2_ttf sdl2_mixer` |
 | Windows 10/11 | `windows-x64.zip` | none — SDL DLLs included |
 
 ### Or build from source

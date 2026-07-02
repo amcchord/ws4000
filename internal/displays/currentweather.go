@@ -136,7 +136,9 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 		ceiling += conv.CeilingUnit()
 	}
 
-	d.data = &currentWeatherData{
+	// build the full struct before publishing it so a silent refresh never
+	// exposes partially-filled data to the render thread
+	data := &currentWeatherData{
 		Temperature:    temp + degree(),
 		TempUnit:       tempUnit,
 		Condition:      condition,
@@ -155,7 +157,7 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 
 	if ts, err := time.Parse(time.RFC3339, props.Timestamp); err == nil && time.Since(ts) > 80*time.Minute {
-		d.data.Stale = true
+		data.Stale = true
 	}
 
 	// ticker segments (ported from currentweatherscroll.mjs)
@@ -167,8 +169,8 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 		tempSeg += fmt.Sprintf("    %s %s%s", heatLabel, heatValue, tempUnit)
 	}
 	segs = append(segs, tempSeg)
-	segs = append(segs, fmt.Sprintf("Humidity: %s   Dewpoint: %s%s", d.data.Humidity, d.data.Dewpoint, tempUnit))
-	segs = append(segs, fmt.Sprintf("Barometric Pressure: %s %s", d.data.Pressure, pressureDir))
+	segs = append(segs, fmt.Sprintf("Humidity: %s   Dewpoint: %s%s", data.Humidity, data.Dewpoint, tempUnit))
+	segs = append(segs, fmt.Sprintf("Barometric Pressure: %s %s", data.Pressure, pressureDir))
 	if windDirSpeed != "Calm" {
 		wind := fmt.Sprintf("Wind: %s %s %s", windDir, windSpeed, conv.WindUnit())
 		if gustVal != "-" && gustVal != "Calm" {
@@ -183,8 +185,9 @@ func (d *CurrentWeatherDisplay) Fetch(params *engine.WeatherParams) error {
 		// the ticker formats ceiling with a space before the unit
 		tickerCeiling = conv.CeilingM(ceilingValue(props)) + " " + conv.CeilingUnit()
 	}
-	segs = append(segs, fmt.Sprintf("Visib: %s  Ceiling: %s", d.data.Visibility, tickerCeiling))
-	d.data.tickerSegments = segs
+	segs = append(segs, fmt.Sprintf("Visib: %s  Ceiling: %s", data.Visibility, tickerCeiling))
+	data.tickerSegments = segs
+	d.data = data
 
 	d.Timing().TotalScreens = 1
 	d.Timing().CalcNavTiming()

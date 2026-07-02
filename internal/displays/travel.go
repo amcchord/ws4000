@@ -114,17 +114,17 @@ func (d *TravelForecastDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 	wg.Wait()
 
-	d.rows = nil
+	var rows []travelRow
 	for _, r := range results {
 		if r.ok {
-			d.rows = append(d.rows, r.row)
+			rows = append(rows, r.row)
 		}
 	}
-	if len(d.rows) == 0 {
+	if len(rows) == 0 {
 		d.SetStatus(engine.StatusNoData)
-		d.Timing().TotalScreens = 0
 		return nil
 	}
+	d.rows = rows
 
 	// day name for the title ("For Friday")
 	tomorrow := time.Now().In(params.TZ()).Add(24 * time.Hour)

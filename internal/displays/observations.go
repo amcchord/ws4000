@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -154,18 +155,19 @@ func (d *LatestObservationsDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 	wg.Wait()
 
-	d.rows = nil
+	var rows []obsRow
 	seen := map[string]bool{}
 	for _, r := range results {
 		if !r.ok || seen[r.row.City] {
 			continue
 		}
 		seen[r.row.City] = true
-		d.rows = append(d.rows, r.row)
-		if len(d.rows) >= 7 {
+		rows = append(rows, r.row)
+		if len(rows) >= 7 {
 			break
 		}
 	}
+	d.rows = rows
 
 	if len(d.rows) == 0 {
 		d.SetStatus(engine.StatusFailed)
@@ -243,35 +245,74 @@ func (d *HourlyDisplay) Fetch(params *engine.WeatherParams) error {
 		periods = periods[:24]
 	}
 	loc := params.TZ()
-	d.rows = nil
+	conv := units.New(params.Units)
+	var rows []hourlyRow
 	for _, p := range periods {
 		t, err := time.Parse(time.RFC3339, p.StartTime)
 		if err != nil {
 			continue
 		}
-		windParts := strings.Fields(p.WindSpeed)
-		wind := p.WindSpeed
-		if len(windParts) > 0 {
-			wind = windParts[0]
+		// wind: "SSE 10" from direction + first number of "10 mph"
+		windSpeed := 0
+		if fields := strings.Fields(p.WindSpeed); len(fields) > 0 {
+			windSpeed, _ = strconv.Atoi(fields[0])
 		}
-		d.rows = append(d.rows, hourlyRow{
+		wind := "Calm"
+		if windSpeed > 0 {
+			wind = fmt.Sprintf("%s %d", p.WindDirection, windSpeed)
+		}
+
+		humidity := 50.0
+		if p.RelativeHumidity.Value != nil {
+			humidity = *p.RelativeHumidity.Value
+		}
+		like := apparentTemperature(p.Temperature, humidity, windSpeed, conv.Units == "metric")
+
+		rows = append(rows, hourlyRow{
 			Hour: strings.ToUpper(t.In(loc).Format("3 PM")),
-			Icon: icons.SmallIcon(p.ShortForecast, t.In(loc).Hour() < 6 || t.In(loc).Hour() > 19),
+			Icon: icons.SmallIcon(p.Icon, !p.IsDaytime),
 			Temp: fmtTemp(p.Temperature),
-			Like: fmtTemp(p.Temperature),
+			Like: fmtTemp(like),
 			Wind: wind,
 		})
 	}
-	if len(d.rows) == 0 {
+	if len(rows) == 0 {
 		d.SetStatus(engine.StatusNoData)
 		return nil
 	}
+	d.rows = rows
 	screens := (len(d.rows) + 3) / 4
 	d.Timing().TotalScreens = screens
 	d.Timing().Delay = 1
 	d.Timing().CalcNavTiming()
 	d.SetStatus(engine.StatusLoaded)
 	return nil
+}
+
+// apparentTemperature computes the "LIKE" column: NWS heat index when hot,
+// wind chill when cold, otherwise the air temperature. temp is in display
+// units; formulas run in Fahrenheit.
+func apparentTemperature(temp int, humidity float64, windMPH int, metric bool) int {
+	tempF := float64(temp)
+	if metric {
+		tempF = tempF*9/5 + 32
+	}
+	feelsF := tempF
+	switch {
+	case tempF >= 80 && humidity >= 40:
+		// Rothfusz heat index regression
+		t, rh := tempF, humidity
+		feelsF = -42.379 + 2.04901523*t + 10.14333127*rh -
+			0.22475541*t*rh - 0.00683783*t*t - 0.05481717*rh*rh +
+			0.00122874*t*t*rh + 0.00085282*t*rh*rh - 0.00000199*t*t*rh*rh
+	case tempF <= 50 && windMPH > 3:
+		v := math.Pow(float64(windMPH), 0.16)
+		feelsF = 35.74 + 0.6215*tempF - 35.75*v + 0.4275*tempF*v
+	}
+	if metric {
+		return int(math.Round((feelsF - 32) * 5 / 9))
+	}
+	return int(math.Round(feelsF))
 }
 
 func (d *HourlyDisplay) Draw(c *render.Canvas, screenIndex int) error {
@@ -351,25 +392,26 @@ func (d *HourlyGraphDisplay) Fetch(params *engine.WeatherParams) error {
 	}
 	loc := params.TZ()
 	conv := units.New(params.Units)
-	d.temps, d.dewpoints, d.clouds, d.rains, d.times = nil, nil, nil, nil, nil
+	var temps, dewpoints, clouds, rains []float64
+	var times []time.Time
 	for _, p := range periods {
-		d.temps = append(d.temps, float64(p.Temperature))
+		temps = append(temps, float64(p.Temperature))
 		if p.Dewpoint.Value != nil {
 			// hourly dewpoint is degC regardless of the units query parameter
-			d.dewpoints = append(d.dewpoints, conv.CToF(*p.Dewpoint.Value))
+			dewpoints = append(dewpoints, conv.CToF(*p.Dewpoint.Value))
 		} else {
-			d.dewpoints = append(d.dewpoints, math.NaN())
+			dewpoints = append(dewpoints, math.NaN())
 		}
 		prob := 0.0
 		if p.ProbabilityOfPrecipitation.Value != nil {
 			prob = *p.ProbabilityOfPrecipitation.Value
 		}
-		d.rains = append(d.rains, prob)
-		d.clouds = append(d.clouds, math.NaN())
+		rains = append(rains, prob)
+		clouds = append(clouds, math.NaN())
 		if t, err := time.Parse(time.RFC3339, p.StartTime); err == nil {
-			d.times = append(d.times, t.In(loc))
+			times = append(times, t.In(loc))
 		} else {
-			d.times = append(d.times, time.Time{})
+			times = append(times, time.Time{})
 		}
 	}
 
@@ -390,12 +432,13 @@ func (d *HourlyGraphDisplay) Fetch(params *engine.WeatherParams) error {
 			}
 			return best
 		}
-		for i, t := range d.times {
+		for i, t := range times {
 			if !t.IsZero() {
-				d.clouds[i] = cloudAt(t)
+				clouds[i] = cloudAt(t)
 			}
 		}
 	}
+	d.temps, d.dewpoints, d.clouds, d.rains, d.times = temps, dewpoints, clouds, rains, times
 	d.Timing().TotalScreens = 1
 	d.Timing().Delay = 4
 	d.Timing().CalcNavTiming()

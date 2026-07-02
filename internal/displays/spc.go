@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/amcchord/ws4000/internal/config"
@@ -205,6 +204,5 @@ func (d *SPCOutlookDisplay) Draw(c *render.Canvas, screenIndex int) error {
 		c.FillRect(223, y+3, w-6, 17, grayMid)
 		c.FillRect(223, y+12, w-6, 14, grayLight)
 	}
-	_ = strings.ToUpper("")
 	return nil
 }

@@ -58,7 +58,7 @@ func (s *Service) BuildParams(lat, lon float64, units string) (*engine.WeatherPa
 	}
 	filtered := nws.FilterStations(stations.Features)
 	if len(filtered) == 0 {
-		return nil, err
+		return nil, fmt.Errorf("no usable observation stations found for %.4f,%.4f", lat, lon)
 	}
 
 	zoneID := nws.ZoneFromURL(point.Properties.ForecastZone)

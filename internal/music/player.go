@@ -69,13 +69,32 @@ func (p *Player) Play() error {
 	path := p.tracks[p.current%len(p.tracks)]
 	music, err := mix.LoadMUS(path)
 	if err != nil {
+		// skip unreadable tracks instead of getting stuck on them
+		p.current++
 		return err
 	}
-	if err := music.Play(-1); err != nil {
+	// play once; Poll advances to the next track when it finishes
+	if err := music.Play(1); err != nil {
 		return err
 	}
 	p.playing = true
 	return nil
+}
+
+// Poll advances to the next shuffled track once the current one finishes.
+// Call it periodically (e.g. once per rendered frame).
+func (p *Player) Poll() {
+	if !p.playing || len(p.tracks) == 0 || p.volume == 0 {
+		return
+	}
+	if !mix.PlayingMusic() {
+		p.current++
+		if p.current%len(p.tracks) == 0 {
+			// reshuffle on each pass through the playlist, like upstream
+			rand.Shuffle(len(p.tracks), func(i, j int) { p.tracks[i], p.tracks[j] = p.tracks[j], p.tracks[i] })
+		}
+		_ = p.Play()
+	}
 }
 
 func (p *Player) Stop() {
